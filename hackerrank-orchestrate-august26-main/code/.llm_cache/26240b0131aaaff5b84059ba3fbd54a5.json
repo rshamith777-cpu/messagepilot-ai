@@ -1,0 +1,1 @@
+{"action": "mute", "message_type": "scam", "reason": "The message contains a suspicious OTP leak alert with a prompt to open a link and confirm a verification code, indicating a potential phishing attempt.", "confidence": 0.92, "evidence_message_ids": ["message_0213", "message_0369", "message_0195"]}

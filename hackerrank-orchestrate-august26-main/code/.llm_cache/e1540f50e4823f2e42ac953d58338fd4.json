@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "event", "reason": "The message contains time-sensitive information about a schedule change for a dance practice.", "confidence": 0.9, "evidence_message_ids": ["message_0234", "message_0376"]}

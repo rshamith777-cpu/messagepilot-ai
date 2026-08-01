@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "urgent", "reason": "The message contains a time-sensitive warning about a repair truck arriving and potential security action", "confidence": 0.9, "evidence_message_ids": ["message_0130", "message_0190", "message_0142"]}

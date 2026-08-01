@@ -1,0 +1,1 @@
+{"action": "digest", "message_type": "unknown", "reason": "The message is a voice note in a group with no urgent keywords or direct mentions.", "confidence": 0.7, "evidence_message_ids": ["message_0218", "message_0397"]}

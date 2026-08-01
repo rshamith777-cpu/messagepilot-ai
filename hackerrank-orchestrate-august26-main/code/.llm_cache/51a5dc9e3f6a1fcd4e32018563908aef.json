@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "business_update", "reason": "The message is from an admin and contains important information about maintenance and receipts.", "confidence": 0.9, "evidence_message_ids": ["message_0067", "message_0029", "message_0097"]}

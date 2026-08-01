@@ -1,0 +1,1 @@
+{"action": "mute", "message_type": "scam", "reason": "The message asks for sensitive account information, indicating a potential scam.", "confidence": 0.9, "evidence_message_ids": ["message_0214", "message_0053", "message_0173"]}
