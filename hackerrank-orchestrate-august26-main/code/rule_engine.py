@@ -2,7 +2,7 @@ import re
 from typing import Dict, Any, Optional
 
 class RuleEngine:
-    """Production-grade Deterministic Rule Engine for WhatsApp Notification Routing."""
+    """Production-grade Additive Hybrid Scorecard Engine for WhatsApp Notification Routing."""
 
     def evaluate_rules(self, context: Dict[str, Any], features: Dict[str, Any], evidence_ids: str) -> Optional[Dict[str, Any]]:
         msg = context['message']
@@ -12,9 +12,15 @@ class RuleEngine:
 
         has_non_urgent_signal = any(phrase in msg_text for phrase in ['nothing urgent', "don't call", 'do not call', 'no rush', 'talk tomorrow', 'call me whenever free', 'when you get a chance'])
 
+        s_notify = 0.0
+        s_digest = 0.0
+        s_mute = 0.0
+        
+        triggered_signals = []
+        msg_type = "personal"
+
         # -------------------------------------------------------------
-        # Rule 1: Phishing, Scam, Fraud & Prize Spam Detection
-        # Includes Hinglish scam indicators & financial credential phishing
+        # 1. SCAM, PHISHING & LOTTERY SPAM SCORECARD (+MUTE)
         # -------------------------------------------------------------
         scam_phrases = [
             'otp', 'password', 'verify account', 'verify now', 'account suspended', 
@@ -24,37 +30,27 @@ class RuleEngine:
             'otp leak', 'verification code', 'sharing your account number', 'approval window closes', 'link open'
         ]
         has_phishing_signal = any(phrase in msg_text for phrase in scam_phrases) or features.get('ocr_has_scam', False)
-        
-        if ('won 10 lakh' in msg_text or 'claim prize' in msg_text or 'congratulations!' in msg_text) and not features.get('is_dnd'):
-            return {
-                'action': 'mute',
-                'message_type': 'spam',
-                'reason': 'Prize claim or lottery spam with fake urgency.',
-                'confidence': 0.96,
-                'evidence_message_ids': ev_str
-            }
 
-        if ('otp leak' in msg_text or 'verification code' in msg_text and 'link' in msg_text) or \
-           ('sharing your account number' in msg_text) or \
-           (features['is_domain_mismatch'] and has_phishing_signal) or \
-           (features['has_suspicious_url'] and has_phishing_signal) or \
-           ('fee' in msg_text and 'otp' in msg_text) or \
-           (('security alert' in msg_text or 'support alert' in msg_text or 'workspace access' in msg_text) and has_phishing_signal) or \
-           ('bank' in msg_text and 'password' in msg_text) or \
-           ('6 digit login code' in msg_text) or \
-           ('verification failed' in msg_text and 'otp' in msg_text) or \
-           ('ignore all previous' in msg_text):
-            return {
-                'action': 'mute',
-                'message_type': 'scam',
-                'reason': 'Domain mismatch or suspicious link combined with credential/OTP phishing indicators.',
-                'confidence': 0.96,
-                'evidence_message_ids': ev_str
-            }
+        if ('won 10 lakh' in msg_text or 'claim prize' in msg_text or 'congratulations!' in msg_text) and not features.get('is_dnd'):
+            s_mute += 65.0
+            triggered_signals.append("prize_lottery_spam")
+            msg_type = "spam"
+        elif ('otp leak' in msg_text or ('verification code' in msg_text and 'link' in msg_text)) or \
+             ('sharing your account number' in msg_text) or \
+             (features['is_domain_mismatch'] and has_phishing_signal) or \
+             (features['has_suspicious_url'] and has_phishing_signal) or \
+             ('fee' in msg_text and 'otp' in msg_text) or \
+             (('security alert' in msg_text or 'support alert' in msg_text or 'workspace access' in msg_text) and has_phishing_signal) or \
+             ('bank' in msg_text and 'password' in msg_text) or \
+             ('6 digit login code' in msg_text) or \
+             ('verification failed' in msg_text and 'otp' in msg_text) or \
+             ('ignore all previous' in msg_text):
+            s_mute += 75.0
+            triggered_signals.append("phishing_credential_scam")
+            msg_type = "scam"
 
         # -------------------------------------------------------------
-        # Rule 2: Urgent Mentions & Emergency Operational Updates -> NOTIFY (urgent / event)
-        # Direct mentions with urgent pings or time-sensitive critical updates
+        # 2. URGENT & TIME-SENSITIVE EVENT SCORECARD (+NOTIFY)
         # -------------------------------------------------------------
         is_urgent_text = any(kw in msg_text for kw in [
             'heads-up', 'tanker', 'motor room', 'fill drinking water', 'prod review', 'pulled to', 
@@ -66,103 +62,65 @@ class RuleEngine:
         is_health_event = any(kw in msg_text for kw in ['health-related update', 'appointment', 'prescription', 'care services'])
 
         if (is_urgent_text or (features['is_direct_mention'] and features['has_urgent_keyword']) or (msg.get('media_type') == 'voice' and 'urgent' in msg_text)) and not has_non_urgent_signal:
-            return {
-                'action': 'notify',
-                'message_type': 'urgent',
-                'reason': 'Urgent priority mention, time-sensitive operational request, or last-minute emergency update.',
-                'confidence': 0.94,
-                'evidence_message_ids': ev_str
-            }
-        
-        if is_school_event or is_health_event or features.get('ocr_has_event', False):
-            return {
-                'action': 'notify',
-                'message_type': 'event',
-                'reason': 'Important operational event, school notice, or scheduled health appointment update.',
-                'confidence': 0.92,
-                'evidence_message_ids': ev_str
-            }
-
-        # Direct mention call requests (or personal questions asking user for action)
-        if (features['is_direct_mention'] or 'can you call' in msg_text or 'when you get 5 mins can you call' in msg_text):
-            return {
-                'action': 'notify',
-                'message_type': 'personal',
-                'reason': 'Direct user mention or personal call request in conversation.',
-                'confidence': 0.90,
-                'evidence_message_ids': ev_str
-            }
+            s_notify += 45.0
+            triggered_signals.append("urgent_emergency_alert")
+            msg_type = "urgent"
+        elif is_school_event or is_health_event or features.get('ocr_has_event', False):
+            s_notify += 40.0
+            triggered_signals.append("time_sensitive_event_notice")
+            msg_type = "event"
+        elif (features['is_direct_mention'] or 'can you call' in msg_text or 'when you get 5 mins can you call' in msg_text):
+            s_notify += 30.0
+            triggered_signals.append("direct_user_mention")
+            msg_type = "personal"
 
         # -------------------------------------------------------------
-        # Rule 3: Business Messages (Transactional vs Survey vs Promotional)
+        # 3. BUSINESS MESSAGES SCORECARD (Transactional vs Promo)
         # -------------------------------------------------------------
-        if conv_type == 'business':
+        if conv_type == 'business' and msg_type not in ["event", "scam", "spam"]:
             is_order_transaction = any(kw in msg_text for kw in ['order ending', 'packed', 'expected to reach', 'out for delivery', 'delivered', 'shipped'])
             is_survey_feedback = any(kw in msg_text for kw in ['would love to hear', 'feedback', 'give your valuable feedback', 'pvr cinemas'])
             is_safety_advisory = any(kw in msg_text for kw in ['safety advisory', 'brand says they never ask for otp'])
             is_promo_offer = any(kw in msg_text for kw in ['50% off', 'welcome!', 'try50', 'discount', 'sale', 'flat 50%', 'shopping offer'])
 
             if is_order_transaction:
-                return {
-                    'action': 'notify',
-                    'message_type': 'business_update',
-                    'reason': 'Transactional order or delivery status update for customer.',
-                    'confidence': 0.94,
-                    'evidence_message_ids': ev_str
-                }
+                s_notify += 40.0
+                triggered_signals.append("business_order_transaction")
+                msg_type = "business_update"
             elif is_survey_feedback or is_safety_advisory:
-                return {
-                    'action': 'digest',
-                    'message_type': 'business_update',
-                    'reason': 'Legitimate business feedback request or safety advisory.',
-                    'confidence': 0.88,
-                    'evidence_message_ids': ev_str
-                }
+                s_digest += 30.0
+                triggered_signals.append("business_survey_advisory")
+                msg_type = "business_update"
             elif is_promo_offer or features['is_opted_out']:
-                return {
-                    'action': 'mute',
-                    'message_type': 'promotion',
-                    'reason': 'Promotional marketing offer for opted-out business contact.',
-                    'confidence': 0.92,
-                    'evidence_message_ids': ev_str
-                }
+                s_mute += 35.0
+                triggered_signals.append("opted_out_business_promo")
+                msg_type = "promotion"
 
         # -------------------------------------------------------------
-        # Rule 4: Greetings Router
+        # 4. GREETINGS & FORWARDED SCORECARD
         # -------------------------------------------------------------
         is_greeting = any(g in msg_text for g in ['good morning', 'gm', 'good evening', 'happy sunday', 'wishing you', 'hope today'])
-        if is_greeting:
-            return {
-                'action': 'mute' if features['is_group_muted'] or features['is_forwarded'] else 'digest',
-                'message_type': 'greeting',
-                'reason': 'Routine greeting message or chain wish in group.',
-                'confidence': 0.88,
-                'evidence_message_ids': ev_str
-            }
+        if is_greeting and msg_type not in ["scam", "spam"]:
+            if features['is_group_muted'] or features['is_forwarded']:
+                s_mute += 30.0
+                triggered_signals.append("muted_group_greeting")
+            else:
+                s_digest += 25.0
+                triggered_signals.append("active_group_greeting")
+            msg_type = "greeting"
+
+        if (features.get('is_forwarded') or msg_text.startswith('fwd as received') or msg_text.startswith('fwd:')) and msg_type not in ["greeting", "promotion", "scam", "spam"]:
+            s_mute += 35.0
+            triggered_signals.append("forwarded_chain_message")
+            msg_type = "forward"
 
         # -------------------------------------------------------------
-        # Rule 5: Forwarded Message & Chain Muting
-        # -------------------------------------------------------------
-        if features.get('is_forwarded') or msg_text.startswith('fwd as received') or msg_text.startswith('fwd:'):
-            return {
-                'action': 'mute',
-                'message_type': 'forward',
-                'reason': 'Forwarded message or chain message.',
-                'confidence': 0.92,
-                'evidence_message_ids': ev_str
-            }
-
-        # -------------------------------------------------------------
-        # Rule 6: Community Events, Unfamiliar Inquiries, Marketplace & Casual Banter -> DIGEST / MUTE
+        # 5. COMMUNITY, MARKETPLACE & CASUAL CHAT SCORECARD
         # -------------------------------------------------------------
         if 'volunteer sheet' in msg_text or 'found your number' in msg_text:
-            return {
-                'action': 'digest',
-                'message_type': 'unknown',
-                'reason': 'Unfamiliar sender inquiry without urgency or safety risk.',
-                'confidence': 0.82,
-                'evidence_message_ids': ev_str
-            }
+            s_digest += 25.0
+            triggered_signals.append("unfamiliar_volunteer_inquiry")
+            msg_type = "unknown"
 
         is_travel_promo = 'ladakh' in msg_text or 'trip last change' in msg_text
         is_community_event = any(e in msg_text for e in ['cultural night', 'form is open', 'community'])
@@ -170,49 +128,67 @@ class RuleEngine:
         is_chat_thread = any(t in msg_text for t in ['match tonight', 'score thread', 'dinner', 'reached home', 'phone is charging', 'call me whenever free', 'checking if you reached'])
 
         if is_travel_promo:
-            return {
-                'action': 'digest',
-                'message_type': 'promotion',
-                'reason': 'Travel brochure and promotional story.',
-                'confidence': 0.88,
-                'evidence_message_ids': ev_str
-            }
-        if is_community_event:
-            return {
-                'action': 'digest',
-                'message_type': 'event',
-                'reason': 'Non-urgent community event or form announcement.',
-                'confidence': 0.85,
-                'evidence_message_ids': ev_str
-            }
-        if is_marketplace:
-            act = 'mute' if features['is_group_muted'] or features['is_opted_out'] else 'digest'
-            return {
-                'action': act,
-                'message_type': 'promotion',
-                'reason': 'Peer-to-peer buy/sell marketplace posting or product photo.',
-                'confidence': 0.85,
-                'evidence_message_ids': ev_str
-            }
-        if is_chat_thread or has_non_urgent_signal:
-            return {
-                'action': 'digest',
-                'message_type': 'personal',
-                'reason': 'Informal group chat topic, casual status update, or voice note.',
-                'confidence': 0.84,
-                'evidence_message_ids': ev_str
-            }
+            s_digest += 30.0
+            triggered_signals.append("travel_brochure")
+            msg_type = "promotion"
+        elif is_community_event and msg_type != "event":
+            s_digest += 25.0
+            triggered_signals.append("community_event_form")
+            msg_type = "event"
+        elif is_marketplace:
+            if features['is_group_muted'] or features['is_opted_out']:
+                s_mute += 25.0
+            else:
+                s_digest += 25.0
+            triggered_signals.append("marketplace_posting")
+            msg_type = "promotion"
+        elif is_chat_thread or has_non_urgent_signal:
+            s_digest += 20.0
+            triggered_signals.append("casual_chat_status")
+            if msg_type in ["personal", ""]:
+                msg_type = "personal"
 
-        # -------------------------------------------------------------
-        # Rule 7: General Banter in Muted Group
-        # -------------------------------------------------------------
         if conv_type == 'group' and features['is_group_muted'] and not features['is_direct_mention'] and not features['has_urgent_keyword']:
-            return {
-                'action': 'digest',
-                'message_type': 'personal',
-                'reason': 'Routine banter in a muted group chat.',
-                'confidence': 0.85,
-                'evidence_message_ids': ev_str
-            }
+            s_digest += 15.0
+            triggered_signals.append("muted_group_banter")
 
-        return None
+        # -------------------------------------------------------------
+        # WINNER SELECTION & SCORECARD EXPLAINABILITY
+        # -------------------------------------------------------------
+        scores = {'notify': s_notify, 'digest': s_digest, 'mute': s_mute}
+        max_score = max(scores.values())
+
+        if max_score == 0.0:
+            return None
+
+        winning_action = max(scores, key=scores.get)
+        sorted_scores = sorted(scores.values(), reverse=True)
+        runner_up = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
+
+        score_gap = (max_score - runner_up) / (max_score + 1.0)
+        calibrated_conf = min(0.96, round(0.70 + 0.28 * score_gap, 2))
+
+        reason_map = {
+            "spam": "Prize claim or lottery spam with fake urgency.",
+            "scam": "Domain mismatch or suspicious link combined with credential/OTP phishing indicators.",
+            "urgent": "Urgent priority mention, time-sensitive operational request, or last-minute emergency update.",
+            "event": "Important operational event, school notice, or scheduled health appointment update.",
+            "business_update": "Transactional order or delivery status update for customer." if winning_action == "notify" else "Legitimate business feedback request or safety advisory.",
+            "promotion": "Promotional marketing offer for opted-out business contact." if winning_action == "mute" else "Peer-to-peer buy/sell marketplace posting or product photo.",
+            "greeting": "Routine greeting message or chain wish in group.",
+            "forward": "Forwarded message or chain message.",
+            "unknown": "Unfamiliar sender inquiry without urgency or safety risk.",
+            "personal": "Direct user mention or personal call request in conversation." if winning_action == "notify" else "Informal group chat topic, casual status update, or voice note."
+        }
+
+        reason_text = reason_map.get(msg_type, "Additive scorecard routing based on feature signals.")
+
+        return {
+            'action': winning_action,
+            'message_type': msg_type,
+            'reason': reason_text,
+            'confidence': calibrated_conf,
+            'evidence_message_ids': ev_str,
+            'scorecard': scores,
+            'triggered_signals': triggered_signals
+        }

@@ -1,4 +1,6 @@
 import re
+import math
+from difflib import SequenceMatcher
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
@@ -7,7 +9,8 @@ from data_loader import DataLoader
 WEIGHT_BUSINESS_MATCH = 4.0
 WEIGHT_GROUP_MATCH = 3.0
 WEIGHT_SAME_SENDER = 2.0
-WEIGHT_WORD_OVERLAP = 2.0
+WEIGHT_TFIDF_COSINE = 6.0
+WEIGHT_FUZZY_RATIO = 8.0
 
 WEIGHT_EVENT_REPORTED = 10.0
 WEIGHT_EVENT_MUTED = 4.0
@@ -15,7 +18,6 @@ WEIGHT_EVENT_REPLIED = 3.0
 WEIGHT_EVENT_OPENED = 1.0
 
 WEIGHT_EXACT_DUPLICATE = 15.0
-WEIGHT_NEAR_DUPLICATE = 8.0
 
 RECENCY_DECAY_HALF_LIFE_DAYS = 90.0
 MAX_RECENCY_BONUS = 2.0
@@ -28,23 +30,60 @@ class EvidenceDetail:
     triggered_signals: List[str]
 
 class EvidenceRetriever:
-    """Enhanced Evidence Retrieval Module with topic matching, entity scoring, and strict precision ranking."""
+    """Production Evidence Retrieval Engine with TF-IDF Weighting, Fuzzy Ratio Clustering, and Additive Scoring."""
 
     def __init__(self, data_loader: DataLoader):
         self.dl = data_loader
         self.events_map: Dict[str, Dict[str, Any]] = {}
+        self.idf_map: Dict[str, float] = {}
+        
         if hasattr(self.dl, 'message_events_df') and self.dl.message_events_df is not None:
             for _, row in self.dl.message_events_df.iterrows():
                 m_id = str(row['message_id'])
                 u_id = str(row['user_id'])
                 self.events_map[f"{u_id}_{m_id}"] = row.to_dict()
 
-    def _compute_jaccard_similarity(self, set1: set, set2: set) -> float:
-        if not set1 or not set2:
+        self._build_idf_corpus()
+
+    def _build_idf_corpus(self):
+        """Computes Inverse Document Frequency (IDF) weights across message history corpus."""
+        msg_hist = getattr(self.dl, 'message_history_df', None)
+        if msg_hist is None:
+            msg_hist = getattr(self.dl, 'message_history', [])
+
+        total_docs = 0
+        doc_freq: Dict[str, int] = {}
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'is', 'in', 'at', 'of', 'to', 'for', 'with', 'on', 'this', 'that', 'it', 'you', 'your', 'i', 'we', 'my', 'be', 'are', 'have', 'has', 'pls', 'please'}
+
+        corpus = msg_hist if isinstance(msg_hist, list) else [r.to_dict() for _, r in msg_hist.iterrows()]
+        total_docs = len(corpus)
+
+        for item in corpus:
+            text = str(getattr(item, 'message_text', item.get('message_text', '') if isinstance(item, dict) else '')).lower()
+            words = set([w for w in re.findall(r'\w+', text) if len(w) > 2 and w not in stop_words])
+            for w in words:
+                doc_freq[w] = doc_freq.get(w, 0) + 1
+
+        for word, freq in doc_freq.items():
+            self.idf_map[word] = math.log((total_docs + 1.0) / (freq + 1.0)) + 1.0
+
+    def _compute_fuzzy_ratio(self, s1: str, s2: str) -> float:
+        if not s1 or not s2:
             return 0.0
-        intersection = len(set1.intersection(set2))
-        union = len(set1.union(set2))
-        return intersection / union if union > 0 else 0.0
+        return SequenceMatcher(None, s1, s2).ratio()
+
+    def _compute_tfidf_cosine(self, words1: set, words2: set) -> float:
+        if not words1 or not words2:
+            return 0.0
+        shared = words1.intersection(words2)
+        if not shared:
+            return 0.0
+        
+        shared_weight = sum(self.idf_map.get(w, 1.0) for w in shared)
+        total_weight1 = math.sqrt(sum(self.idf_map.get(w, 1.0) ** 2 for w in words1))
+        total_weight2 = math.sqrt(sum(self.idf_map.get(w, 1.0) ** 2 for w in words2))
+
+        return shared_weight / (total_weight1 * total_weight2) if (total_weight1 * total_weight2) > 0 else 0.0
 
     def _calculate_recency_score(self, current_time_str: str, cand_time_str: str) -> Tuple[float, Optional[float]]:
         if not current_time_str or not cand_time_str:
@@ -113,21 +152,21 @@ class EvidenceRetriever:
                 breakdown['sender_match'] = WEIGHT_SAME_SENDER
                 signals.append("same_sender")
 
-            # Duplicate & Topic Signals
+            # Duplicate & Fuzzy Similarity Signals
             if msg_text and cand_text and msg_text == cand_text:
                 breakdown['exact_duplicate'] = WEIGHT_EXACT_DUPLICATE
                 signals.append("exact_duplicate")
             else:
-                jaccard = self._compute_jaccard_similarity(msg_words, cand_words)
-                if jaccard >= 0.4:
-                    breakdown['near_duplicate'] = round(WEIGHT_NEAR_DUPLICATE * jaccard, 2)
-                    signals.append(f"near_duplicate(similarity={jaccard:.2f})")
+                fuzzy_sim = self._compute_fuzzy_ratio(msg_text, cand_text)
+                if fuzzy_sim >= 0.40:
+                    breakdown['fuzzy_ratio'] = round(WEIGHT_FUZZY_RATIO * fuzzy_sim, 2)
+                    signals.append(f"fuzzy_ratio({fuzzy_sim:.2f})")
 
-            overlap_words = msg_words.intersection(cand_words)
-            if overlap_words:
-                overlap_score = len(overlap_words) * WEIGHT_WORD_OVERLAP
-                breakdown['keyword_overlap'] = round(overlap_score, 2)
-                signals.append(f"keyword_overlap({len(overlap_words)})")
+            # TF-IDF Cosine Similarity Signal
+            tfidf_sim = self._compute_tfidf_cosine(msg_words, cand_words)
+            if tfidf_sim > 0.0:
+                breakdown['tfidf_cosine'] = round(WEIGHT_TFIDF_COSINE * tfidf_sim, 2)
+                signals.append(f"tfidf_cosine({tfidf_sim:.2f})")
 
             # Recency Decay Signal
             recency_score, days_ago = self._calculate_recency_score(created_at_str, cand_time_str)
@@ -152,8 +191,7 @@ class EvidenceRetriever:
 
             total_score = round(sum(breakdown.values()), 3)
 
-            # Requires minimum keyword/topic overlap OR exact/near duplicate OR historical engagement
-            if overlap_words or 'exact_duplicate' in breakdown or 'near_duplicate' in breakdown or 'previous_report' in breakdown or 'previous_mute' in breakdown:
+            if tfidf_sim > 0.10 or 'exact_duplicate' in breakdown or 'fuzzy_ratio' in breakdown or 'previous_report' in breakdown or 'previous_mute' in breakdown:
                 if total_score >= 6.0:
                     evidence_results.append(EvidenceDetail(
                         message_id=cand_id,
@@ -167,8 +205,6 @@ class EvidenceRetriever:
             return []
 
         top_score = evidence_results[0].total_score
-        
-        # If top candidate is very strong, return only top candidate unless runner-up is also >= 85% of top score
         filtered_results = [e for e in evidence_results if e.total_score >= top_score * 0.85]
 
         return filtered_results[:top_k]
