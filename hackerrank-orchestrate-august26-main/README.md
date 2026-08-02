@@ -14,11 +14,12 @@ A production-grade, multimodal, hybrid AI notification routing engine built for 
 
 ## 📑 Table of Contents
 1. [Quick Start & How to Run](#-quick-start--how-to-run)
-2. [System Architecture & Flow Diagrams](#-system-architecture--flow-diagrams)
-3. [Core Subsystems & Technical Deep Dive](#-core-subsystems--technical-deep-dive)
-4. [Three-Layer Validation Strategy](#-three-layer-validation-strategy)
-5. [Output Schema (`dataset/output.csv`)](#-output-schema-datasetoutputcsv)
-6. [AI Judge Defense & Interview Preparation](#-ai-judge-defense--interview-preparation)
+2. [Interactive Explainability Dashboard](#-interactive-explainability-dashboard)
+3. [System Architecture & Flow Diagrams](#-system-architecture--flow-diagrams)
+4. [Core Subsystems & Technical Deep Dive](#-core-subsystems--technical-deep-dive)
+5. [Three-Layer Validation Strategy](#-three-layer-validation-strategy)
+6. [Output Schema (`dataset/output.csv`)](#-output-schema-datasetoutputcsv)
+7. [AI Judge Defense & Interview Preparation](#-ai-judge-defense--interview-preparation)
 
 ---
 
@@ -30,20 +31,38 @@ cd hackerrank-orchestrate-august26-main
 python code/main.py
 ```
 
-### 2. Run Official Benchmark Evaluator (Against `sample_messages.csv`)
+### 2. Run Interactive Explainability Dashboard & Live Simulator UI
+```bash
+python dashboard/serve_dashboard.py
+```
+
+### 3. Run Official Benchmark Evaluator (Against `sample_messages.csv`)
 ```bash
 python code/evaluate.py
 ```
 
-### 3. Run Internal Unseen Edge-Case Benchmark
+### 4. Run Internal Unseen Edge-Case Benchmark
 ```bash
 python benchmark/run_benchmark.py
 ```
 
-### 4. Run Automated 10-Point QA Test Suite
+### 5. Run Automated 10-Point QA Test Suite
 ```bash
 python code/qa_test_suite.py
 ```
+
+---
+
+## 💻 Interactive Explainability Dashboard
+
+MessagePilot AI includes a standalone, zero-dependency web dashboard (`dashboard/index.html`) to visualize real-time Decision Graphs, Scorecard Vectors ($S_{\text{notify}}, S_{\text{digest}}, S_{\text{mute}}$), BM25 Evidence Candidates, and Confidence Decomposition:
+
+```bash
+python dashboard/serve_dashboard.py
+```
+* **Interactive Live Simulator**: Select pre-set scenario chips (Bank OTP Scam, Urgent Leak Alert, Order Delivery, School Circular, Group Wish, Prompt Injection) or type any custom incoming payload.
+* **Score Vector Progress Bars**: Real-time visualization of Additive Scorecard values.
+* **Confidence Decomposition**: Transparent breakdown showing Rule Strength ($40\%$), Evidence Quality ($30\%$), Personalization ($20\%$), and LLM Reasoner ($10\%$).
 
 ---
 
