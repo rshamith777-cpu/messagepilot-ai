@@ -9,7 +9,7 @@ msg_005,digest,promotion,Peer-to-peer buy/sell marketplace posting or product ph
 msg_104,notify,personal,Baseline fallback routing based on context features.,0.67,message_0050
 msg_069,mute,greeting,Routine greeting message or chain wish in group.,0.92,message_0193;message_0177
 msg_107,mute,forward,Forwarded message or chain message.,0.85,message_0213;message_0056;message_0369
-msg_070,digest,personal,Baseline fallback routing based on context features.,0.75,message_0369
+msg_070,mute,scam,Domain mismatch or suspicious link combined with credential/OTP phishing indicators.,0.96,message_0369
 msg_003,notify,business_update,Transactional order or delivery status update for customer.,0.95,message_0031;message_0400
 msg_099,notify,personal,Baseline fallback routing based on context features.,0.67,message_0227
 msg_008,digest,personal,Baseline fallback routing based on context features.,0.75,message_0296
@@ -17,7 +17,7 @@ msg_092,notify,personal,Baseline fallback routing based on context features.,0.6
 msg_060,digest,promotion,Peer-to-peer buy/sell marketplace posting or product photo.,0.92,message_0284
 msg_004,notify,event,"Important operational event, school notice, or scheduled health appointment update.",0.94,message_0245;message_0005;message_0246
 msg_030,mute,forward,Forwarded message or chain message.,0.94,message_0115
-msg_045,notify,personal,Baseline fallback routing based on context features.,0.67,message_0146;message_0061
+msg_045,notify,urgent,"Urgent priority mention, time-sensitive operational request, or last-minute emergency update.",0.87,message_0146;message_0061
 msg_052,mute,forward,Forwarded message or chain message.,0.86,message_0207;message_0208;message_0159
 msg_009,digest,personal,"Informal group chat topic, casual status update, or voice note.",0.90,message_0074
 msg_071,digest,personal,"Informal group chat topic, casual status update, or voice note.",0.76,message_0197
@@ -80,7 +80,7 @@ msg_051,mute,promotion,Promotional marketing offer for opted-out business contac
 msg_097,digest,personal,"Informal group chat topic, casual status update, or voice note.",0.81,message_0054;message_0225;message_0167
 msg_089,notify,personal,Baseline fallback routing based on context features.,0.37,none
 msg_053,notify,urgent,"Urgent priority mention, time-sensitive operational request, or last-minute emergency update.",0.87,message_0253;message_0161;message_0411
-msg_059,notify,personal,Baseline fallback routing based on context features.,0.64,message_0214;message_0213;message_0053
+msg_059,mute,scam,Domain mismatch or suspicious link combined with credential/OTP phishing indicators.,0.85,message_0214;message_0213;message_0053
 msg_024,mute,promotion,Promotional marketing offer for opted-out business contact.,0.94,message_0257;message_0402
 msg_072,mute,forward,Forwarded message or chain message.,0.86,message_0085;message_0199;message_0213
 msg_036,mute,forward,Forwarded message or chain message.,0.86,message_0283

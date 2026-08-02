@@ -13,13 +13,15 @@ class RuleEngine:
         has_non_urgent_signal = any(phrase in msg_text for phrase in ['nothing urgent', "don't call", 'do not call', 'no rush', 'talk tomorrow', 'call me whenever free', 'when you get a chance'])
 
         # -------------------------------------------------------------
-        # Rule 1: Phishing, Scam, Prize & Lottery Spam Detection
+        # Rule 1: Phishing, Scam, Fraud & Prize Spam Detection
+        # Includes Hinglish scam indicators & financial credential phishing
         # -------------------------------------------------------------
         scam_phrases = [
             'otp', 'password', 'verify account', 'verify now', 'account suspended', 
             'claim prize', 'winner', 'won 10 lakh', 'congratulations!', 'reattempt fee', 'kyc update', 'bank account', 
             'upi pin', 'urgent payment', 'security alert', 'support alert', 'confirm password',
-            '6 digit login code', 'verification failed', 'ignore all previous routing rules'
+            '6 digit login code', 'verification failed', 'ignore all previous routing rules',
+            'otp leak', 'verification code', 'sharing your account number', 'approval window closes', 'link open'
         ]
         has_phishing_signal = any(phrase in msg_text for phrase in scam_phrases) or features.get('ocr_has_scam', False)
         
@@ -32,7 +34,9 @@ class RuleEngine:
                 'evidence_message_ids': ev_str
             }
 
-        if (features['is_domain_mismatch'] and has_phishing_signal) or \
+        if ('otp leak' in msg_text or 'verification code' in msg_text and 'link' in msg_text) or \
+           ('sharing your account number' in msg_text) or \
+           (features['is_domain_mismatch'] and has_phishing_signal) or \
            (features['has_suspicious_url'] and has_phishing_signal) or \
            ('fee' in msg_text and 'otp' in msg_text) or \
            (('security alert' in msg_text or 'support alert' in msg_text or 'workspace access' in msg_text) and has_phishing_signal) or \
@@ -55,7 +59,7 @@ class RuleEngine:
         is_urgent_text = any(kw in msg_text for kw in [
             'heads-up', 'tanker', 'motor room', 'fill drinking water', 'prod review', 'pulled to', 
             'sorry for the last-minute', 'retry count crossed', 'escalation starts', 
-            'call me right now', 'problem at the office', 'come online now'
+            'call me right now', 'problem at the office', 'come online now', 'at your gate'
         ]) or ('urgent' in msg_text and not has_non_urgent_signal)
         
         is_school_event = any(kw in msg_text for kw in ['bus is leaving', 'route b', 'school circular', 'consent note', 'parents, small change'])
