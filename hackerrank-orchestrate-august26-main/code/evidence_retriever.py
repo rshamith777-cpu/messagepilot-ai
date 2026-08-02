@@ -9,7 +9,7 @@ from data_loader import DataLoader
 WEIGHT_BUSINESS_MATCH = 4.0
 WEIGHT_GROUP_MATCH = 3.0
 WEIGHT_SAME_SENDER = 2.0
-WEIGHT_TFIDF_COSINE = 6.0
+WEIGHT_BM25 = 3.5
 WEIGHT_FUZZY_RATIO = 8.0
 
 WEIGHT_EVENT_REPORTED = 10.0
@@ -22,6 +22,11 @@ WEIGHT_EXACT_DUPLICATE = 15.0
 RECENCY_DECAY_HALF_LIFE_DAYS = 90.0
 MAX_RECENCY_BONUS = 2.0
 
+BM25_K1 = 1.5
+BM25_B = 0.75
+
+STOP_WORDS = {'the', 'a', 'an', 'and', 'or', 'is', 'in', 'at', 'of', 'to', 'for', 'with', 'on', 'this', 'that', 'it', 'you', 'your', 'i', 'we', 'my', 'be', 'are', 'have', 'has', 'pls', 'please'}
+
 @dataclass
 class EvidenceDetail:
     message_id: str
@@ -30,12 +35,15 @@ class EvidenceDetail:
     triggered_signals: List[str]
 
 class EvidenceRetriever:
-    """Production Evidence Retrieval Engine with TF-IDF Weighting, Fuzzy Ratio Clustering, and Additive Scoring."""
+    """Research-Grade BM25 + Fast Fuzzy Token Evidence Retrieval Engine."""
 
     def __init__(self, data_loader: DataLoader):
         self.dl = data_loader
         self.events_map: Dict[str, Dict[str, Any]] = {}
         self.idf_map: Dict[str, float] = {}
+        self.doc_lengths: Dict[str, int] = {}
+        self.doc_token_counts: Dict[str, Dict[str, int]] = {}
+        self.avg_doc_len: float = 1.0
         
         if hasattr(self.dl, 'message_events_df') and self.dl.message_events_df is not None:
             for _, row in self.dl.message_events_df.iterrows():
@@ -43,47 +51,75 @@ class EvidenceRetriever:
                 u_id = str(row['user_id'])
                 self.events_map[f"{u_id}_{m_id}"] = row.to_dict()
 
-        self._build_idf_corpus()
+        self._build_bm25_corpus()
 
-    def _build_idf_corpus(self):
-        """Computes Inverse Document Frequency (IDF) weights across message history corpus."""
+    def _build_bm25_corpus(self):
+        """Computes Inverse Document Frequency (IDF) and BM25 document statistics across history corpus."""
         msg_hist = getattr(self.dl, 'message_history_df', None)
         if msg_hist is None:
             msg_hist = getattr(self.dl, 'message_history', [])
 
-        total_docs = 0
-        doc_freq: Dict[str, int] = {}
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'is', 'in', 'at', 'of', 'to', 'for', 'with', 'on', 'this', 'that', 'it', 'you', 'your', 'i', 'we', 'my', 'be', 'are', 'have', 'has', 'pls', 'please'}
-
         corpus = msg_hist if isinstance(msg_hist, list) else [r.to_dict() for _, r in msg_hist.iterrows()]
         total_docs = len(corpus)
 
+        if total_docs == 0:
+            return
+
+        doc_freq: Dict[str, int] = {}
+        total_words = 0
+
         for item in corpus:
+            cand_id = str(getattr(item, 'message_id', item.get('message_id', '') if isinstance(item, dict) else ''))
             text = str(getattr(item, 'message_text', item.get('message_text', '') if isinstance(item, dict) else '')).lower()
-            words = set([w for w in re.findall(r'\w+', text) if len(w) > 2 and w not in stop_words])
+            words = [w for w in re.findall(r'\w+', text) if len(w) > 2 and w not in STOP_WORDS]
+            
+            self.doc_lengths[cand_id] = len(words)
+            total_words += len(words)
+
+            counts: Dict[str, int] = {}
             for w in words:
+                counts[w] = counts.get(w, 0) + 1
+            self.doc_token_counts[cand_id] = counts
+
+            for w in counts.keys():
                 doc_freq[w] = doc_freq.get(w, 0) + 1
 
+        self.avg_doc_len = total_words / total_docs if total_docs > 0 else 1.0
+
         for word, freq in doc_freq.items():
-            self.idf_map[word] = math.log((total_docs + 1.0) / (freq + 1.0)) + 1.0
+            self.idf_map[word] = math.log((total_docs - freq + 0.5) / (freq + 0.5) + 1.0)
 
-    def _compute_fuzzy_ratio(self, s1: str, s2: str) -> float:
-        if not s1 or not s2:
-            return 0.0
-        return SequenceMatcher(None, s1, s2).ratio()
-
-    def _compute_tfidf_cosine(self, words1: set, words2: set) -> float:
-        if not words1 or not words2:
-            return 0.0
-        shared = words1.intersection(words2)
-        if not shared:
+    def _compute_bm25_score(self, cand_id: str, query_words: List[str]) -> float:
+        """Computes Okapi BM25 relevance score using pre-indexed token counts."""
+        if not query_words:
             return 0.0
         
-        shared_weight = sum(self.idf_map.get(w, 1.0) for w in shared)
-        total_weight1 = math.sqrt(sum(self.idf_map.get(w, 1.0) ** 2 for w in words1))
-        total_weight2 = math.sqrt(sum(self.idf_map.get(w, 1.0) ** 2 for w in words2))
+        doc_len = self.doc_lengths.get(cand_id, 0)
+        cand_counts = self.doc_token_counts.get(cand_id, {})
+        if not cand_counts:
+            return 0.0
 
-        return shared_weight / (total_weight1 * total_weight2) if (total_weight1 * total_weight2) > 0 else 0.0
+        score = 0.0
+
+        for word in query_words:
+            if word not in cand_counts:
+                continue
+            tf = cand_counts[word]
+            idf = self.idf_map.get(word, 1.0)
+            
+            num = tf * (BM25_K1 + 1.0)
+            den = tf + BM25_K1 * (1.0 - BM25_B + BM25_B * (doc_len / self.avg_doc_len))
+            score += idf * (num / den)
+
+        return round(score, 3)
+
+    def _compute_fuzzy_token_ratio(self, s1: str, s2: str) -> float:
+        if not s1 or not s2:
+            return 0.0
+        len1, len2 = len(s1), len(s2)
+        if min(len1, len2) / max(len1, len2) < 0.40:
+            return 0.0
+        return SequenceMatcher(None, s1, s2).ratio()
 
     def _calculate_recency_score(self, current_time_str: str, cand_time_str: str) -> Tuple[float, Optional[float]]:
         if not current_time_str or not cand_time_str:
@@ -106,8 +142,7 @@ class EvidenceRetriever:
         created_at_str = str(msg.get('created_at', ''))
         msg_text = str(msg.get('message_text', '')).strip().lower()
         
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'is', 'in', 'at', 'of', 'to', 'for', 'with', 'on', 'this', 'that', 'it', 'you', 'your', 'i', 'we', 'my', 'be', 'are', 'have', 'has', 'pls', 'please'}
-        msg_words = set([w for w in re.findall(r'\w+', msg_text) if len(w) > 2 and w not in stop_words])
+        msg_words = [w for w in re.findall(r'\w+', msg_text) if len(w) > 2 and w not in STOP_WORDS]
 
         candidates = []
         msg_hist = getattr(self.dl, 'message_history_df', None)
@@ -135,7 +170,6 @@ class EvidenceRetriever:
         for cand in candidates:
             cand_id = str(cand['message_id'])
             cand_text = str(cand.get('message_text', '')).strip().lower()
-            cand_words = set([w for w in re.findall(r'\w+', cand_text) if len(w) > 2 and w not in stop_words])
             cand_time_str = str(cand.get('created_at', ''))
 
             breakdown: Dict[str, float] = {}
@@ -152,21 +186,21 @@ class EvidenceRetriever:
                 breakdown['sender_match'] = WEIGHT_SAME_SENDER
                 signals.append("same_sender")
 
-            # Duplicate & Fuzzy Similarity Signals
+            # Exact Match & Fuzzy Sequence Signals
             if msg_text and cand_text and msg_text == cand_text:
                 breakdown['exact_duplicate'] = WEIGHT_EXACT_DUPLICATE
                 signals.append("exact_duplicate")
             else:
-                fuzzy_sim = self._compute_fuzzy_ratio(msg_text, cand_text)
+                fuzzy_sim = self._compute_fuzzy_token_ratio(msg_text, cand_text)
                 if fuzzy_sim >= 0.40:
                     breakdown['fuzzy_ratio'] = round(WEIGHT_FUZZY_RATIO * fuzzy_sim, 2)
                     signals.append(f"fuzzy_ratio({fuzzy_sim:.2f})")
 
-            # TF-IDF Cosine Similarity Signal
-            tfidf_sim = self._compute_tfidf_cosine(msg_words, cand_words)
-            if tfidf_sim > 0.0:
-                breakdown['tfidf_cosine'] = round(WEIGHT_TFIDF_COSINE * tfidf_sim, 2)
-                signals.append(f"tfidf_cosine({tfidf_sim:.2f})")
+            # Okapi BM25 Relevance Score
+            bm25 = self._compute_bm25_score(cand_id, msg_words)
+            if bm25 > 0.0:
+                breakdown['bm25_relevance'] = round(WEIGHT_BM25 * bm25, 2)
+                signals.append(f"bm25_relevance({bm25:.2f})")
 
             # Recency Decay Signal
             recency_score, days_ago = self._calculate_recency_score(created_at_str, cand_time_str)
@@ -191,7 +225,7 @@ class EvidenceRetriever:
 
             total_score = round(sum(breakdown.values()), 3)
 
-            if tfidf_sim > 0.10 or 'exact_duplicate' in breakdown or 'fuzzy_ratio' in breakdown or 'previous_report' in breakdown or 'previous_mute' in breakdown:
+            if bm25 > 0.10 or 'exact_duplicate' in breakdown or 'fuzzy_ratio' in breakdown or 'previous_report' in breakdown or 'previous_mute' in breakdown:
                 if total_score >= 6.0:
                     evidence_results.append(EvidenceDetail(
                         message_id=cand_id,
