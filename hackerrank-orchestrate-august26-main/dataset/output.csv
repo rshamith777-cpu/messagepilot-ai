@@ -29,7 +29,7 @@ msg_014,mute,promotion,Promotional marketing offer for opted-out business contac
 msg_094,mute,promotion,Promotional marketing offer for opted-out business contact.,0.58,none
 msg_029,mute,promotion,Promotional marketing offer for opted-out business contact.,0.79,message_0113;message_0332;message_0095
 msg_105,mute,forward,Forwarded message or chain message.,0.88,message_0233;message_0373
-msg_002,notify,personal,Direct user mention or personal call request in conversation.,0.67,none
+msg_002,notify,urgent,"Urgent priority mention, time-sensitive operational request, or last-minute emergency update.",0.67,none
 msg_010,digest,business_update,Legitimate business feedback request or safety advisory.,0.96,message_0011;message_0242
 msg_078,notify,forward,Forwarded message or chain message.,0.56,none
 msg_013,notify,personal,Baseline fallback routing based on context features.,0.37,none
@@ -95,7 +95,7 @@ msg_101,digest,personal,Baseline fallback routing based on context features.,0.7
 msg_041,notify,personal,Baseline fallback routing based on context features.,0.37,none
 msg_011,mute,greeting,Routine greeting message or chain wish in group.,0.90,message_0077;message_0171;message_0014
 msg_110,mute,forward,Forwarded message or chain message.,0.73,message_0238
-msg_095,notify,personal,Baseline fallback routing based on context features.,0.56,message_0024
+msg_095,mute,scam,Domain mismatch or suspicious link combined with credential/OTP phishing indicators.,0.77,message_0024
 msg_074,mute,scam,Domain mismatch or suspicious link combined with credential/OTP phishing indicators.,0.94,message_0203
 msg_073,mute,forward,Forwarded message or chain message.,0.58,none
 msg_054,notify,personal,Baseline fallback routing based on context features.,0.37,none

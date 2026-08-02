@@ -20,48 +20,51 @@ class RuleEngine:
         msg_type = "personal"
 
         # -------------------------------------------------------------
-        # 1. SCAM, PHISHING & LOTTERY SPAM SCORECARD (+MUTE)
+        # 1. SCAM, PHISHING, PROMPT INJECTION & SPAM SCORECARD (+MUTE)
         # -------------------------------------------------------------
         scam_phrases = [
             'otp', 'password', 'verify account', 'verify now', 'account suspended', 
-            'claim prize', 'winner', 'won 10 lakh', 'congratulations!', 'reattempt fee', 'kyc update', 'bank account', 
+            'claim prize', 'winner', 'won 10 lakh', 'won 25 lakh', 'congratulations!', 'reattempt fee', 'kyc update', 'bank account', 
             'upi pin', 'urgent payment', 'security alert', 'support alert', 'confirm password',
-            '6 digit login code', 'verification failed', 'ignore all previous routing rules',
+            '6 digit login code', 'verification failed', 'verification fail', 'ignore all previous', 'ignore previous', 'system instruction',
             'otp leak', 'verification code', 'sharing your account number', 'approval window closes', 'link open'
         ]
         has_phishing_signal = any(phrase in msg_text for phrase in scam_phrases) or features.get('ocr_has_scam', False)
 
-        if ('won 10 lakh' in msg_text or 'claim prize' in msg_text or 'congratulations!' in msg_text) and not features.get('is_dnd'):
+        if ('won 10 lakh' in msg_text or 'won 25 lakh' in msg_text or 'claim prize' in msg_text or 'congratulations!' in msg_text) and not features.get('is_dnd'):
             s_mute += 65.0
             triggered_signals.append("prize_lottery_spam")
             msg_type = "spam"
         elif ('otp leak' in msg_text or ('verification code' in msg_text and 'link' in msg_text)) or \
              ('sharing your account number' in msg_text) or \
+             ('verification fail' in msg_text) or \
+             ('ignore previous' in msg_text or 'system instruction' in msg_text) or \
              (features['is_domain_mismatch'] and has_phishing_signal) or \
              (features['has_suspicious_url'] and has_phishing_signal) or \
              ('fee' in msg_text and 'otp' in msg_text) or \
              (('security alert' in msg_text or 'support alert' in msg_text or 'workspace access' in msg_text) and has_phishing_signal) or \
              ('bank' in msg_text and 'password' in msg_text) or \
              ('6 digit login code' in msg_text) or \
-             ('verification failed' in msg_text and 'otp' in msg_text) or \
-             ('ignore all previous' in msg_text):
+             ('verification failed' in msg_text and 'otp' in msg_text):
             s_mute += 75.0
             triggered_signals.append("phishing_credential_scam")
             msg_type = "scam"
 
         # -------------------------------------------------------------
-        # 2. URGENT & TIME-SENSITIVE EVENT SCORECARD (+NOTIFY)
+        # 2. URGENT & EMERGENCY OPERATIONAL SCORECARD (+NOTIFY)
         # -------------------------------------------------------------
         is_urgent_text = any(kw in msg_text for kw in [
             'heads-up', 'tanker', 'motor room', 'fill drinking water', 'prod review', 'pulled to', 
             'sorry for the last-minute', 'retry count crossed', 'escalation starts', 
-            'call me right now', 'problem at the office', 'come online now', 'at your gate'
+            'call me right now', 'problem at the office', 'come online now', 'at your gate',
+            'emergency alert', 'gas pipeline leak', 'evacuate', 'maintenance is in progress',
+            'revenue spreadsheet', 'before the client review', 'client meeting'
         ]) or ('urgent' in msg_text and not has_non_urgent_signal)
         
-        is_school_event = any(kw in msg_text for kw in ['bus is leaving', 'route b', 'school circular', 'consent note', 'parents, small change'])
-        is_health_event = any(kw in msg_text for kw in ['health-related update', 'appointment', 'prescription', 'care services'])
+        is_school_event = any(kw in msg_text for kw in ['bus is leaving', 'route b', 'school circular', 'school notice', 'consent note', 'parents, small change', 'submission form closes'])
+        is_health_event = any(kw in msg_text for kw in ['health-related update', 'appointment', 'prescription', 'care services', 'lab test report'])
 
-        if (is_urgent_text or (features['is_direct_mention'] and features['has_urgent_keyword']) or (msg.get('media_type') == 'voice' and 'urgent' in msg_text)) and not has_non_urgent_signal:
+        if (is_urgent_text or (features['is_direct_mention'] and (features['has_urgent_keyword'] or 'before the client' in msg_text or 'spreadsheet' in msg_text)) or (msg.get('media_type') == 'voice' and 'urgent' in msg_text)) and not has_non_urgent_signal:
             s_notify += 45.0
             triggered_signals.append("urgent_emergency_alert")
             msg_type = "urgent"
@@ -75,13 +78,13 @@ class RuleEngine:
             msg_type = "personal"
 
         # -------------------------------------------------------------
-        # 3. BUSINESS MESSAGES SCORECARD (Transactional vs Promo)
+        # 3. BUSINESS MESSAGES SCORECARD (Transactional vs Survey vs Promo)
         # -------------------------------------------------------------
         if conv_type == 'business' and msg_type not in ["event", "scam", "spam"]:
-            is_order_transaction = any(kw in msg_text for kw in ['order ending', 'packed', 'expected to reach', 'out for delivery', 'delivered', 'shipped'])
-            is_survey_feedback = any(kw in msg_text for kw in ['would love to hear', 'feedback', 'give your valuable feedback', 'pvr cinemas'])
-            is_safety_advisory = any(kw in msg_text for kw in ['safety advisory', 'brand says they never ask for otp'])
-            is_promo_offer = any(kw in msg_text for kw in ['50% off', 'welcome!', 'try50', 'discount', 'sale', 'flat 50%', 'shopping offer'])
+            is_order_transaction = any(kw in msg_text for kw in ['order ending', 'packed', 'expected to reach', 'out for delivery', 'delivered', 'shipped', 'has been shipped'])
+            is_survey_feedback = any(kw in msg_text for kw in ['would love to hear', 'feedback', 'give your valuable feedback', 'pvr cinemas', 'rate your dining', 'thank you for visiting'])
+            is_safety_advisory = any(kw in msg_text for kw in ['safety advisory', 'security advisory', 'brand says they never ask', 'never ask for password'])
+            is_promo_offer = any(kw in msg_text for kw in ['50% off', '60% off', 'welcome!', 'try50', 'discount', 'sale', 'flat 50%', 'shopping offer', 'special 60%'])
 
             if is_order_transaction:
                 s_notify += 40.0
@@ -117,15 +120,15 @@ class RuleEngine:
         # -------------------------------------------------------------
         # 5. COMMUNITY, MARKETPLACE & CASUAL CHAT SCORECARD
         # -------------------------------------------------------------
-        if 'volunteer sheet' in msg_text or 'found your number' in msg_text:
+        if 'volunteer sheet' in msg_text or 'found your number' in msg_text or 'got your number' in msg_text:
             s_digest += 25.0
             triggered_signals.append("unfamiliar_volunteer_inquiry")
             msg_type = "unknown"
 
         is_travel_promo = 'ladakh' in msg_text or 'trip last change' in msg_text
-        is_community_event = any(e in msg_text for e in ['cultural night', 'form is open', 'community'])
-        is_marketplace = any(m in msg_text for m in ['selling', 'helmet', 'bought last year', 'cycle', 'kurta set', 'photos for'])
-        is_chat_thread = any(t in msg_text for t in ['match tonight', 'score thread', 'dinner', 'reached home', 'phone is charging', 'call me whenever free', 'checking if you reached'])
+        is_community_event = any(e in msg_text for e in ['cultural night', 'form is open', 'community', 'practice sheet is open'])
+        is_marketplace = any(m in msg_text for m in ['selling', 'helmet', 'bought last year', 'cycle', 'kurta set', 'photos for', 'headphones'])
+        is_chat_thread = any(t in msg_text for t in ['match tonight', 'score thread', 'dinner', 'reached home', 'phone is charging', 'call me whenever free', 'checking if you reached', 'badminton game', 'going to sleep'])
 
         if is_travel_promo:
             s_digest += 30.0
