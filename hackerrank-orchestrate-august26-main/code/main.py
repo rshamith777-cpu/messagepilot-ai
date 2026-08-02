@@ -25,8 +25,12 @@ def process_messages(dataset_dir: str, output_path: str):
     calibrator = ConfidenceCalibrator()
     
     trace_path = os.path.join(dataset_dir, "..", "decision_traces.jsonl")
-    if os.path.exists(trace_path):
-        os.remove(trace_path)
+    try:
+        if os.path.exists(trace_path):
+            with open(trace_path, "w", encoding="utf-8") as f:
+                f.truncate(0)
+    except Exception:
+        pass
     trace_logger = DecisionTraceLogger(trace_path)
 
     results = []
