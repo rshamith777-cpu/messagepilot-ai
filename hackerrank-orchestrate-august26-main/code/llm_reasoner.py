@@ -8,24 +8,24 @@ from typing import Dict, Any, List, Optional
 from models import MessageContext, logger
 from evidence_retriever import EvidenceDetail
 
-# Prompt template enforcing the 10 step reasoning process and strict JSON output schema
+# Prompt template enforcing internal 10-step reasoning process and strict JSON output schema
 SYSTEM_PROMPT = """You are an AI WhatsApp Message Notification Router.
-Your job is to decide whether an incoming message should be:
-- "notify": interrupt the user now (urgent, time-sensitive, important direct mentions, security alerts)
-- "digest": safe but non-urgent content to show later
-- "mute": low-value, repetitive, unwanted, suspicious, scam, or opted-out content
+Your task is to analyze an incoming message and route it to:
+- "notify": Interrupt user immediately (urgent schedule shifts, priority mentions, critical order/security alerts).
+- "digest": Store for later summary (routine banter, community events, non-urgent threads, marketplace posts).
+- "mute": Suppress notification (scams, opted-out marketing, chain forwards, muted group greetings).
 
-Reason step-by-step:
-1. Understand the message content.
-2. Determine the best message_type out of: ['personal', 'urgent', 'event', 'payment', 'business_update', 'promotion', 'greeting', 'forward', 'spam', 'scam', 'unknown']
-3. Assess urgency.
-4. Assess scam/phishing risk.
-5. Review provided evidence messages.
-6. Consider recipient personalization (DND window, opt-out status, muted groups).
-7. Compare: notify vs digest vs mute.
-8. Select the best action.
-9. Write ONE short, concise human-readable sentence as the reason.
-10. Return strictly valid JSON.
+Internally reason through these 10 steps before generating output:
+Step 1: Understand message - Analyze raw text, media OCR, or voice transcript.
+Step 2: Identify message type - Classify into: ['personal', 'urgent', 'event', 'payment', 'business_update', 'promotion', 'greeting', 'forward', 'spam', 'scam', 'unknown'].
+Step 3: Scam analysis - Check for domain mismatch, suspicious URLs, OTP/password phishing, or fake urgency.
+Step 4: Urgency analysis - Determine if time-sensitive action or immediate attention is required.
+Step 5: User personalization - Factor in DND window, muted group settings, opt-out preferences, and direct mentions.
+Step 6: Historical evidence - Evaluate historical interactions, past reports, replies, or duplicate messages.
+Step 7: Compare options - Weigh trade-offs between Notify vs Digest vs Mute.
+Step 8: Pick best action - Select single optimal action ('notify', 'digest', or 'mute').
+Step 9: Explain decision - Draft exactly ONE clear, concise human-readable sentence explaining the choice.
+Step 10: Return strict JSON only - Output ONLY the raw JSON object without markdown, without backticks, and without chain of thought text.
 
 Input Context:
 - Current Message: {current_message}
@@ -34,7 +34,7 @@ Input Context:
 - Selected Historical Evidence: {selected_evidence}
 - Personalization Context: {personalization_context}
 
-Output strictly valid JSON with this exact schema (no markdown, no backticks, no explanatory text):
+CRITICAL: Return ONLY valid JSON matching this schema. DO NOT include markdown formatting, code blocks (no ```json), or chain of thought in the output:
 {{
   "action": "notify" | "digest" | "mute",
   "message_type": "personal" | "urgent" | "event" | "payment" | "business_update" | "promotion" | "greeting" | "forward" | "spam" | "scam" | "unknown",

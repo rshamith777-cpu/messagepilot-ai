@@ -23,7 +23,11 @@ def process_messages(dataset_dir: str, output_path: str):
     llm_reasoner = LLMReasoner()
     multimodal = MultimodalProcessor(dataset_dir)
     calibrator = ConfidenceCalibrator()
-    trace_logger = DecisionTraceLogger(os.path.join(dataset_dir, "..", "decision_traces.jsonl"))
+    
+    trace_path = os.path.join(dataset_dir, "..", "decision_traces.jsonl")
+    if os.path.exists(trace_path):
+        os.remove(trace_path)
+    trace_logger = DecisionTraceLogger(trace_path)
 
     results = []
 
@@ -49,12 +53,14 @@ def process_messages(dataset_dir: str, output_path: str):
         }
 
         # Step 1: Multimodal Pre-Processing (OCR / Speech-to-Text)
+        ocr_result = {}
         if media_type == 'image' and media_id:
             img_info = loader.images.get(media_id)
             if img_info:
-                ocr_text = multimodal.process_image(img_info.file_path)
+                ocr_result = multimodal.process_image(img_info.file_path)
+                ocr_text = ocr_result.get('raw_text', '')
                 if ocr_text:
-                    msg_text = f"{msg_text} {ocr_text}".strip()
+                    msg_text = f"{msg_text} [OCR: {ocr_text}]".strip()
                     msg_dict['message_text'] = msg_text
                     msg_obj.message_text = msg_text
         elif media_type == 'voice' and media_id:
@@ -76,7 +82,8 @@ def process_messages(dataset_dir: str, output_path: str):
             'group_member': loader.group_members.get(f"({msg_obj.group_id},{msg_obj.user_id})", {}).__dict__ if loader.group_members.get(f"({msg_obj.group_id},{msg_obj.user_id})") else {},
             'sender_group_member': loader.group_members.get(f"({msg_obj.group_id},{msg_obj.sender_user_id})", {}).__dict__ if loader.group_members.get(f"({msg_obj.group_id},{msg_obj.sender_user_id})") else {},
             'business': loader.businesses.get(msg_obj.business_id, {}).__dict__ if loader.businesses.get(msg_obj.business_id) else {},
-            'user_business': loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})", {}).__dict__ if loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})") else {}
+            'user_business': loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})", {}).__dict__ if loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})") else {},
+            'ocr_meta': ocr_result
         }
 
         # Step 3: Extract Features
@@ -89,8 +96,11 @@ def process_messages(dataset_dir: str, output_path: str):
         # Step 5: High-Precision Rule Engine
         rule_result = rule_engine.evaluate_rules(legacy_ctx, features, evidence_str)
 
-        # Step 6: Selective Hybrid Reasoning (Only call LLM for low confidence / ambiguous messages)
-        if rule_result and rule_result.get('confidence', 0.0) >= 0.80:
+        # Step 6: Selective Hybrid Reasoning Optimization
+        # Rule Confidence > 0.90 -> Skip LLM
+        # Rule Confidence <= 0.90 -> Call LLM
+        rule_conf = float(rule_result.get('confidence', 0.0)) if rule_result else 0.0
+        if rule_result and rule_conf > 0.90:
             decision = rule_result
         else:
             decision = llm_reasoner.reason(context, features, rule_result, evidence_details)
@@ -112,13 +122,21 @@ def process_messages(dataset_dir: str, output_path: str):
             final_prediction=decision
         )
 
+        ev_val = decision.get('evidence_message_ids', 'none')
+        if isinstance(ev_val, list):
+            ev_str = ";".join([str(e).strip() for e in ev_val if str(e).strip() and str(e).strip() != 'none'])
+            if not ev_str:
+                ev_str = "none"
+        else:
+            ev_str = str(ev_val).strip() if str(ev_val).strip() else "none"
+
         results.append({
             'message_id': msg_id,
             'action': str(decision['action']).lower().strip(),
             'message_type': str(decision['message_type']).lower().strip(),
-            'reason': str(decision['reason']),
+            'reason': str(decision['reason']).strip(),
             'confidence': f"{final_confidence:.2f}",
-            'evidence_message_ids': decision['evidence_message_ids'] if isinstance(decision['evidence_message_ids'], str) else (";".join(decision['evidence_message_ids']) if decision['evidence_message_ids'] else "none")
+            'evidence_message_ids': ev_str
         })
 
     # Step 9: Write exact output schema to output.csv

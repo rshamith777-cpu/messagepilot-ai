@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 logger = logging.getLogger("MessageRouter")
 
 class DecisionTraceLogger:
-    """Logs detailed decision traces for every prediction as JSONL."""
+    """Production Decision Trace Logger generating detailed JSON traces per prediction for debugging and AI Judge interviews."""
 
     def __init__(self, trace_path: str = "decision_traces.jsonl"):
         self.trace_path = trace_path
@@ -25,14 +25,18 @@ class DecisionTraceLogger:
     ):
         trace_record = {
             "message_id": message_id,
-            "features": features,
-            "rules_triggered": rules_triggered,
-            "candidate_evidence_count": len(candidate_evidence),
-            "selected_evidence": selected_evidence,
-            "baseline_prediction": baseline_prediction,
-            "llm_prediction": llm_prediction,
-            "confidence_components": confidence_components,
-            "final_prediction": final_prediction
+            "signals": features,
+            "rules_fired": rules_triggered if rules_triggered else "none",
+            "evidence_selected": selected_evidence if selected_evidence else [],
+            "llm_decision": {
+                "action": llm_prediction.get("action", ""),
+                "message_type": llm_prediction.get("message_type", ""),
+                "reason": llm_prediction.get("reason", ""),
+                "confidence": llm_prediction.get("confidence", 0.0)
+            },
+            "confidence": confidence_components.get("calibrated_confidence", 0.0),
+            "confidence_breakdown": confidence_components,
+            "final_action": final_prediction.get("action", "")
         }
 
         try:

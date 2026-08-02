@@ -68,6 +68,13 @@ class FeatureExtractor:
         has_fwd_prefix = any(msg_text.strip().lower().startswith(prefix) for prefix in fwd_text_prefixes)
         is_forwarded = fwd_count > 0 or has_fwd_prefix
 
+        # 7. OCR Feature Flags
+        ocr_meta = context.get('ocr_meta', {})
+        ocr_category = ocr_meta.get('category', 'unknown') if isinstance(ocr_meta, dict) else 'unknown'
+        ocr_has_scam = bool(ocr_meta.get('has_scam_keywords', False)) if isinstance(ocr_meta, dict) else False
+        ocr_has_event = bool(ocr_meta.get('has_event_keywords', False)) if isinstance(ocr_meta, dict) else False
+        ocr_has_payment = bool(ocr_meta.get('has_qr_or_payment', False)) if isinstance(ocr_meta, dict) else False
+
         return {
             'is_dnd': is_dnd,
             'is_domain_mismatch': is_domain_mismatch,
@@ -78,5 +85,9 @@ class FeatureExtractor:
             'is_direct_mention': is_direct_mention,
             'has_urgent_keyword': has_urgent_keyword,
             'forwarded_count': fwd_count,
-            'is_forwarded': is_forwarded
+            'is_forwarded': is_forwarded,
+            'ocr_category': ocr_category,
+            'ocr_has_scam': ocr_has_scam,
+            'ocr_has_event': ocr_has_event,
+            'ocr_has_payment': ocr_has_payment
         }

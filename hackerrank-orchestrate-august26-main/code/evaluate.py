@@ -59,13 +59,15 @@ class Evaluator:
             media_type = str(row.get('media_type', ''))
             media_id = str(row.get('media_id', ''))
             msg_text = str(row.get('message_text', ''))
+            ocr_result = {}
 
             if media_type == 'image' and media_id:
                 img_path = self.loader.images.get(media_id)
                 if img_path:
-                    ocr_text = self.multimodal.process_image(img_path.file_path)
+                    ocr_result = self.multimodal.process_image(img_path.file_path)
+                    ocr_text = ocr_result.get('raw_text', '')
                     if ocr_text:
-                        msg_text = f"{msg_text} {ocr_text}".strip()
+                        msg_text = f"{msg_text} [OCR: {ocr_text}]".strip()
                         msg_dict['message_text'] = msg_text
             elif media_type == 'voice' and media_id:
                 vn_path = self.loader.voice_notes.get(media_id)
@@ -97,7 +99,8 @@ class Evaluator:
                 'group_member': self.loader.group_members.get(f"({msg_obj.group_id},{msg_obj.user_id})", {}).__dict__ if self.loader.group_members.get(f"({msg_obj.group_id},{msg_obj.user_id})") else {},
                 'sender_group_member': self.loader.group_members.get(f"({msg_obj.group_id},{msg_obj.sender_user_id})", {}).__dict__ if self.loader.group_members.get(f"({msg_obj.group_id},{msg_obj.sender_user_id})") else {},
                 'business': self.loader.businesses.get(msg_obj.business_id, {}).__dict__ if self.loader.businesses.get(msg_obj.business_id) else {},
-                'user_business': self.loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})", {}).__dict__ if self.loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})") else {}
+                'user_business': self.loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})", {}).__dict__ if self.loader.user_business_histories.get(f"({msg_obj.user_id},{msg_obj.business_id})") else {},
+                'ocr_meta': ocr_result
             }
 
             features = self.feature_extractor.extract_features(legacy_ctx)
@@ -107,8 +110,11 @@ class Evaluator:
 
             rule_result = self.rule_engine.evaluate_rules(legacy_ctx, features, evidence_str)
             
-            # Selective Hybrid AI invocation (Call LLM only for low-confidence / non-deterministic cases)
-            if rule_result and rule_result.get('confidence', 0.0) >= 0.80:
+            # Selective Hybrid AI Architecture Optimization:
+            # Rule Confidence > 0.90 -> Skip LLM
+            # Rule Confidence <= 0.90 -> Call LLM
+            rule_conf = float(rule_result.get('confidence', 0.0)) if rule_result else 0.0
+            if rule_result and rule_conf > 0.90:
                 llm_result = rule_result
             else:
                 llm_result = self.llm_reasoner.reason(context, features, rule_result, evidence_details)
@@ -170,11 +176,12 @@ class Evaluator:
         avg_conf = np.mean(confidences)
         avg_evidence_overlap = np.mean(evidence_overlaps)
 
-        # Precision, Recall, F1 for Action
+        # Precision, Recall, F1 & False Counts for Action
         actions = ['notify', 'digest', 'mute']
         precision_dict = {}
         recall_dict = {}
         f1_dict = {}
+        false_counts = {}
 
         for act in actions:
             tp = sum([1 for t, p in zip(y_true_action, y_pred_action) if t == act and p == act])
@@ -188,20 +195,26 @@ class Evaluator:
             precision_dict[act] = round(p, 4)
             recall_dict[act] = round(r, 4)
             f1_dict[act] = round(f1, 4)
+            false_counts[act] = fp
 
-        # Print Evaluation Report
+        # Print Clean Evaluation Report
         print("==================================================")
         print("         EVALUATION SUMMARY REPORT               ")
         print("==================================================")
         print(f"Total Sample Messages Evaluated: {len(sample_df)}")
         print(f"Action Accuracy:          {action_acc * 100:.2f}%")
         print(f"Message Type Accuracy:    {type_acc * 100:.2f}%")
-        print(f"Average Calibrated Conf:  {avg_conf:.4f}")
+        print(f"Average Calibrated Conf:  {avg_conf:.4f} (Clamped [0.35, 0.98])")
         print(f"Evidence Jaccard Overlap: {avg_evidence_overlap * 100:.2f}%\n")
+
+        print("--- FALSE PREDICTION COUNTS ---")
+        print(f"False NOTIFY Count: {false_counts['notify']}")
+        print(f"False DIGEST Count: {false_counts['digest']}")
+        print(f"False MUTE Count:   {false_counts['mute']}\n")
 
         print("--- PER-ACTION METRICS ---")
         for act in actions:
-            print(f"[{act.upper()}] Precision: {precision_dict[act]:.4f} | Recall: {recall_dict[act]:.4f} | F1: {f1_dict[act]:.4f}")
+            print(f"[{act.upper():<6}] Precision: {precision_dict[act]:.4f} | Recall: {recall_dict[act]:.4f} | F1-Score: {f1_dict[act]:.4f}")
 
         # Confusion Matrix
         print("\n--- CONFUSION MATRIX (Action) ---")
@@ -215,13 +228,16 @@ class Evaluator:
         print("\n==================================================")
         print("       TOP INCORRECT PREDICTIONS ANALYSIS         ")
         print("==================================================")
-        for i, err in enumerate(errors[:10], 1):
-            print(f"\n{i}. Message ID: {err['message_id']}")
-            print(f"   Snippet: \"{err['text']}\"")
-            print(f"   Actual:    Action='{err['gt_action']}', Type='{err['gt_type']}', Evidence='{err['gt_evidence']}'")
-            print(f"   Predicted: Action='{err['pred_action']}', Type='{err['pred_type']}', Evidence='{err['pred_evidence']}'")
-            print(f"   Reason:    {err['reason']}")
-            print(f"   Key Signals: DND={err['features'].get('is_dnd')}, OptOut={err['features'].get('is_opted_out')}, MutedGroup={err['features'].get('is_group_muted')}, Mention={err['features'].get('is_direct_mention')}")
+        if not errors:
+            print("Zero mispredictions! 100% accuracy achieved on sample set.")
+        else:
+            for i, err in enumerate(errors[:10], 1):
+                print(f"\n{i}. Message ID: {err['message_id']}")
+                print(f"   Snippet: \"{err['text']}\"")
+                print(f"   Actual:    Action='{err['gt_action']}', Type='{err['gt_type']}', Evidence='{err['gt_evidence']}'")
+                print(f"   Predicted: Action='{err['pred_action']}', Type='{err['pred_type']}', Evidence='{err['pred_evidence']}'")
+                print(f"   Reason:    {err['reason']}")
+                print(f"   Key Signals: DND={err['features'].get('is_dnd')}, OptOut={err['features'].get('is_opted_out')}, MutedGroup={err['features'].get('is_group_muted')}, Mention={err['features'].get('is_direct_mention')}")
 
 if __name__ == '__main__':
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

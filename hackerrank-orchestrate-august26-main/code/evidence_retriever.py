@@ -1,31 +1,24 @@
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from data_loader import DataLoader
 
-# ==========================================
-# CONFIGURABLE SCORING WEIGHTS CONSTANTS
-# ==========================================
-WEIGHT_BUSINESS_MATCH = 5.0
+WEIGHT_BUSINESS_MATCH = 4.0
 WEIGHT_GROUP_MATCH = 3.0
 WEIGHT_SAME_SENDER = 2.0
-WEIGHT_WORD_OVERLAP = 0.5
+WEIGHT_WORD_OVERLAP = 2.0
 
-# Event & Historical Engagement Weights
 WEIGHT_EVENT_REPORTED = 10.0
 WEIGHT_EVENT_MUTED = 4.0
-WEIGHT_EVENT_REPLIED = 2.0
+WEIGHT_EVENT_REPLIED = 3.0
 WEIGHT_EVENT_OPENED = 1.0
-WEIGHT_EVENT_DISMISSED = -1.5  # Negative score for dismissed noise
 
-# Duplicate Detection Weights
-WEIGHT_EXACT_DUPLICATE = 8.0
-WEIGHT_NEAR_DUPLICATE = 4.0
+WEIGHT_EXACT_DUPLICATE = 15.0
+WEIGHT_NEAR_DUPLICATE = 8.0
 
-# Recency Decay Constant (decay per 30 days)
-RECENCY_DECAY_HALF_LIFE_DAYS = 30.0
-MAX_RECENCY_BONUS = 3.0
+RECENCY_DECAY_HALF_LIFE_DAYS = 90.0
+MAX_RECENCY_BONUS = 2.0
 
 @dataclass
 class EvidenceDetail:
@@ -35,13 +28,7 @@ class EvidenceDetail:
     triggered_signals: List[str]
 
 class EvidenceRetriever:
-    """Enhanced Dedicated Evidence Retrieval Module:
-    1. Configurable Scoring Constants
-    2. Candidate Retrieval with Recency Scoring (exponential decay)
-    3. Duplicate Detection (Exact string match & Jaccard near-duplicate match)
-    4. Full Historical Engagement Integration (opened, replied, dismissed, muted, reported)
-    5. Rich Evidence Objects (message_id, total_score, score_breakdown, triggered_signals)
-    """
+    """Enhanced Evidence Retrieval Module with topic matching, entity scoring, and strict precision ranking."""
 
     def __init__(self, data_loader: DataLoader):
         self.dl = data_loader
@@ -66,8 +53,6 @@ class EvidenceRetriever:
             curr_dt = datetime.strptime(current_time_str, "%Y-%m-%d %H:%M")
             cand_dt = datetime.strptime(cand_time_str, "%Y-%m-%d %H:%M")
             days_diff = max(0.0, (curr_dt - cand_dt).total_seconds() / 86400.0)
-            
-            # Recency bonus with exponential decay
             score = MAX_RECENCY_BONUS * (0.5 ** (days_diff / RECENCY_DECAY_HALF_LIFE_DAYS))
             return round(score, 3), days_diff
         except Exception:
@@ -81,9 +66,10 @@ class EvidenceRetriever:
         business_id = str(msg.get('business_id', ''))
         created_at_str = str(msg.get('created_at', ''))
         msg_text = str(msg.get('message_text', '')).strip().lower()
-        msg_words = set(re.findall(r'\w+', msg_text))
+        
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'is', 'in', 'at', 'of', 'to', 'for', 'with', 'on', 'this', 'that', 'it', 'you', 'your', 'i', 'we', 'my', 'be', 'are', 'have', 'has', 'pls', 'please'}
+        msg_words = set([w for w in re.findall(r'\w+', msg_text) if len(w) > 2 and w not in stop_words])
 
-        # 1. Candidate Retrieval
         candidates = []
         msg_hist = getattr(self.dl, 'message_history_df', None)
         if msg_hist is None:
@@ -92,114 +78,103 @@ class EvidenceRetriever:
         if isinstance(msg_hist, list):
             for item in msg_hist:
                 row = item.__dict__ if hasattr(item, '__dict__') else item
-                cand_user = str(row.get('user_id', ''))
-                if cand_user != user_id:
+                if str(row.get('user_id', '')) != user_id:
                     continue
-                cand_group = str(row.get('group_id', ''))
-                cand_biz = str(row.get('business_id', ''))
-                cand_sender = str(row.get('sender_user_id', ''))
-                if (group_id and cand_group == group_id) or \
-                   (business_id and cand_biz == business_id) or \
-                   (sender_id and cand_sender == sender_id):
-                    candidates.append(row)
+                candidates.append(row)
         elif hasattr(msg_hist, 'iterrows'):
             for _, row_series in msg_hist.iterrows():
                 row = row_series.to_dict()
-                cand_user = str(row.get('user_id', ''))
-                if cand_user != user_id:
+                if str(row.get('user_id', '')) != user_id:
                     continue
-                cand_group = str(row.get('group_id', ''))
-                cand_biz = str(row.get('business_id', ''))
-                cand_sender = str(row.get('sender_user_id', ''))
-                if (group_id and cand_group == group_id) or \
-                   (business_id and cand_biz == business_id) or \
-                   (sender_id and cand_sender == sender_id):
-                    candidates.append(row)
+                candidates.append(row)
 
         if not candidates:
             return []
 
-        # 2. Additive Feature Scoring with Detailed Breakdown
         evidence_results: List[EvidenceDetail] = []
 
         for cand in candidates:
             cand_id = str(cand['message_id'])
             cand_text = str(cand.get('message_text', '')).strip().lower()
-            cand_words = set(re.findall(r'\w+', cand_text))
+            cand_words = set([w for w in re.findall(r'\w+', cand_text) if len(w) > 2 and w not in stop_words])
             cand_time_str = str(cand.get('created_at', ''))
 
             breakdown: Dict[str, float] = {}
             signals: List[str] = []
 
-            # Entity Match
+            # Entity Match Signals
             if business_id and str(cand.get('business_id', '')) == business_id:
                 breakdown['business_match'] = WEIGHT_BUSINESS_MATCH
                 signals.append("same_business")
             if group_id and str(cand.get('group_id', '')) == group_id:
                 breakdown['group_match'] = WEIGHT_GROUP_MATCH
                 signals.append("same_group")
-                if sender_id and str(cand.get('sender_user_id', '')) == sender_id:
-                    breakdown['same_sender'] = WEIGHT_SAME_SENDER
-                    signals.append("same_sender")
+            if sender_id and str(cand.get('sender_user_id', '')) == sender_id:
+                breakdown['sender_match'] = WEIGHT_SAME_SENDER
+                signals.append("same_sender")
 
-            # Duplicate Detection
+            # Duplicate & Topic Signals
             if msg_text and cand_text and msg_text == cand_text:
                 breakdown['exact_duplicate'] = WEIGHT_EXACT_DUPLICATE
                 signals.append("exact_duplicate")
             else:
                 jaccard = self._compute_jaccard_similarity(msg_words, cand_words)
-                if jaccard >= 0.7:
-                    breakdown['near_duplicate'] = WEIGHT_NEAR_DUPLICATE
+                if jaccard >= 0.4:
+                    breakdown['near_duplicate'] = round(WEIGHT_NEAR_DUPLICATE * jaccard, 2)
                     signals.append(f"near_duplicate(similarity={jaccard:.2f})")
 
-            # Word Overlap
-            overlap = len(msg_words.intersection(cand_words))
-            if overlap > 0:
-                breakdown['word_overlap'] = round(overlap * WEIGHT_WORD_OVERLAP, 2)
-                signals.append(f"word_overlap({overlap})")
+            overlap_words = msg_words.intersection(cand_words)
+            if overlap_words:
+                overlap_score = len(overlap_words) * WEIGHT_WORD_OVERLAP
+                breakdown['keyword_overlap'] = round(overlap_score, 2)
+                signals.append(f"keyword_overlap({len(overlap_words)})")
 
-            # Recency Scoring
+            # Recency Decay Signal
             recency_score, days_ago = self._calculate_recency_score(created_at_str, cand_time_str)
             if recency_score > 0:
-                breakdown['recency'] = recency_score
-                if days_ago is not None:
-                    signals.append(f"recency({days_ago:.1f}d_ago)")
+                breakdown['recency_decay'] = recency_score
 
-            # Historical Engagement Reactions
+            # Historical Engagement Reaction Signals
             event = self.events_map.get(f"{user_id}_{cand_id}", {})
             if event:
                 if event.get('message_reported', 0) in [1, "1"]:
-                    breakdown['event_reported'] = WEIGHT_EVENT_REPORTED
-                    signals.append("user_reported")
+                    breakdown['previous_report'] = WEIGHT_EVENT_REPORTED
+                    signals.append("previous_report")
                 if event.get('muted_after_message', 0) in [1, "1"]:
-                    breakdown['event_muted'] = WEIGHT_EVENT_MUTED
-                    signals.append("muted_after_message")
+                    breakdown['previous_mute'] = WEIGHT_EVENT_MUTED
+                    signals.append("previous_mute")
                 if event.get('message_replied', 0) in [1, "1"]:
-                    breakdown['event_replied'] = WEIGHT_EVENT_REPLIED
-                    signals.append("user_replied")
+                    breakdown['previous_reply'] = WEIGHT_EVENT_REPLIED
+                    signals.append("previous_reply")
                 if event.get('message_opened', 0) in [1, "1"]:
-                    breakdown['event_opened'] = WEIGHT_EVENT_OPENED
-                    signals.append("user_opened")
-                if event.get('notification_dismissed', 0) in [1, "1"]:
-                    breakdown['event_dismissed'] = WEIGHT_EVENT_DISMISSED
-                    signals.append("user_dismissed")
+                    breakdown['previous_opened'] = WEIGHT_EVENT_OPENED
+                    signals.append("previous_opened")
 
             total_score = round(sum(breakdown.values()), 3)
 
-            if total_score > 1.0:
-                evidence_results.append(EvidenceDetail(
-                    message_id=cand_id,
-                    total_score=total_score,
-                    score_breakdown=breakdown,
-                    triggered_signals=signals
-                ))
+            # Requires minimum keyword/topic overlap OR exact/near duplicate OR historical engagement
+            if overlap_words or 'exact_duplicate' in breakdown or 'near_duplicate' in breakdown or 'previous_report' in breakdown or 'previous_mute' in breakdown:
+                if total_score >= 6.0:
+                    evidence_results.append(EvidenceDetail(
+                        message_id=cand_id,
+                        total_score=total_score,
+                        score_breakdown=breakdown,
+                        triggered_signals=signals
+                    ))
 
-        # Sort descending by total_score
         evidence_results.sort(key=lambda x: x.total_score, reverse=True)
-        return evidence_results[:top_k]
+        if not evidence_results:
+            return []
+
+        top_score = evidence_results[0].total_score
+        
+        # If top candidate is very strong, return only top candidate unless runner-up is also >= 85% of top score
+        filtered_results = [e for e in evidence_results if e.total_score >= top_score * 0.85]
+
+        return filtered_results[:top_k]
 
     def retrieve_evidence(self, context: Dict[str, Any], top_k: int = 3) -> str:
-        """Pipeline compatibility method returning semicolon-separated string or 'none'."""
+        """Pipeline backward-compatibility method returning semicolon-separated string or 'none'."""
         details = self.retrieve_evidence_details(context, top_k=top_k)
         if not details:
             return "none"
