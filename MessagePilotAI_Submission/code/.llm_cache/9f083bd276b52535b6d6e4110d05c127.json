@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "event", "reason": "The message is about lift maintenance, which is a time-sensitive event affecting the recipient's daily activities.", "confidence": 0.9, "evidence_message_ids": ["message_0149", "message_0150"]}

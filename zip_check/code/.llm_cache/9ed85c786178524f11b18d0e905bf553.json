@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "urgent", "reason": "The message contains a time-sensitive alert about workspace access expiring today.", "confidence": 0.9, "evidence_message_ids": ["sample_msg_052"]}

@@ -1,0 +1,1 @@
+{"action": "digest", "message_type": "personal", "reason": "The message is a non-urgent personal greeting and the user has set do not disturb hours.", "confidence": 0.8, "evidence_message_ids": ["message_0370", "message_0229"]}

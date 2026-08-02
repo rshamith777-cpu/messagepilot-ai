@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "scam", "reason": "The message is attempting to create a sense of urgency to reveal sensitive information, which is a common phishing tactic.", "confidence": 0.9, "evidence_message_ids": ["message_0213", "message_0053", "message_0214"]}

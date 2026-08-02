@@ -1,0 +1,1 @@
+{"action": "digest", "message_type": "event", "reason": "The message is about a scheduled pickup, which is not urgent but still relevant to the user.", "confidence": 0.8, "evidence_message_ids": ["message_0401", "message_0066", "message_0113"]}

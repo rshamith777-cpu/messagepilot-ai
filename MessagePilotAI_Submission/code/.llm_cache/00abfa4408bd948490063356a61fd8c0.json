@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "payment", "reason": "The message is about a maintenance payment with a deadline, indicating it's time-sensitive and important.", "confidence": 0.9, "evidence_message_ids": ["message_0068", "message_0098", "message_0029"]}

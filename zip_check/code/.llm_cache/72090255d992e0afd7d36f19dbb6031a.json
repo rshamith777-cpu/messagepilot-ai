@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "business_update", "reason": "The message contains important information about a rollback and requires the user's attention for the next 30 minutes.", "confidence": 0.9, "evidence_message_ids": ["message_0371", "message_0230"]}

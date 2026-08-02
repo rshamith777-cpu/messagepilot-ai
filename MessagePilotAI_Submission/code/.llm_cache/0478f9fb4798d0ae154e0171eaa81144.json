@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "urgent", "reason": "The message contains a time-sensitive alert with a deadline in 20 minutes requiring immediate attention.", "confidence": 0.92, "evidence_message_ids": ["message_0228", "message_0362"]}

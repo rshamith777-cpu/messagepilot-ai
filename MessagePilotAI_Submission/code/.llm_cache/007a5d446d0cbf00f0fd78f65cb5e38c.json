@@ -1,0 +1,1 @@
+{"action": "mute", "message_type": "scam", "reason": "The message contains a suspicious URL and attempts to prompt action with a sense of urgency, indicating a potential scam.", "confidence": 0.92, "evidence_message_ids": ["message_0032", "message_0107", "message_0108"]}

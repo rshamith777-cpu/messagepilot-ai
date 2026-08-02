@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "business_update", "reason": "The message is from a group admin and contains important information about an upcoming sync meeting.", "confidence": 0.9, "evidence_message_ids": ["message_0249", "message_0117", "message_0118"]}

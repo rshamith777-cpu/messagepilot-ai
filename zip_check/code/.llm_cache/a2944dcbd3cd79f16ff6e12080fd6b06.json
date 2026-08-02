@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "business_update", "reason": "The message contains a safety advisory from a business, which is important and relevant to the user.", "confidence": 0.9, "evidence_message_ids": ["message_0412"]}

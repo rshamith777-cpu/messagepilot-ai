@@ -1,0 +1,1 @@
+{"action": "digest", "message_type": "business_update", "reason": "The message is a non-urgent business update with a survey link from a known business conversation.", "confidence": 0.8, "evidence_message_ids": ["message_0137", "message_0138"]}

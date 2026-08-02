@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "personal", "reason": "The message is a personal request with a specific time constraint for collecting an item.", "confidence": 0.9, "evidence_message_ids": ["message_0383", "message_0224", "message_0232"]}

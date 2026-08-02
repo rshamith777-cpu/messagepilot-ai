@@ -1,0 +1,1 @@
+{"action": "mute", "message_type": "unknown", "reason": "The message is empty and has a domain mismatch, indicating potential spam or scam.", "confidence": 0.8, "evidence_message_ids": []}

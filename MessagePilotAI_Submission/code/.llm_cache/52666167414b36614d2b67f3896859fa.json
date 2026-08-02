@@ -1,0 +1,1 @@
+{"action": "notify", "message_type": "payment", "reason": "The message contains a payment verification failure notice requiring immediate user action.", "confidence": 0.95, "evidence_message_ids": ["message_0087", "message_0183", "message_0201"]}
